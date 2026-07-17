@@ -27,12 +27,18 @@ export default async function handler(req, res) {
       '{',
       '  "category": one of "hotel","flight","car","insurance","activity","transfer","other",',
       '  "vendor": "name of the hotel / airline / rental company / provider",',
-      '  "destination": "city or airport if shown",',
-      '  "amount": numeric total (just the number, no symbols),',
+      '  "amount": numeric total or per-person price (just the number, no symbols),',
+      '  "amount_basis": "per_person" | "total" | null,',
       '  "currency": "EUR" | "ILS" | "USD" | other ISO code,',
-      '  "date": "date or date-range as shown",',
-      '  "confirmation": "booking reference / confirmation number if shown",',
-      '  "note": "one short sentence in Hebrew summarizing what this is"',
+      '  "date": "date or date-range as shown (YYYY-MM-DD if possible)",',
+      '  "confirmation": "booking reference if shown",',
+      '  "note": "one short sentence in Hebrew summarizing what this is",',
+      '  "flight": {  // include ONLY when category is "flight", else null',
+      '     "origin": "departure airport/city (e.g. Haifa, Tel Aviv, TLV, HFA)",',
+      '     "destination": "arrival airport/city (e.g. Paphos, Larnaca, PFO, LCA)",',
+      '     "direction": "outbound" | "return" | null,',
+      '     "airline": "carrier name if shown"',
+      '  }',
       '}'
     ].join('\n');
 
