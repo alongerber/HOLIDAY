@@ -181,6 +181,17 @@
     </div>
   </div>
 
+  <div class="panel"><div class="panel-head">💬 עוזר אישי — שואל, מחפש ברשת, ממליץ</div>
+    <div class="panel-body">
+      <div id="chatLog" style="max-height:280px;overflow-y:auto;display:flex;flex-direction:column;gap:8px;margin-bottom:10px"></div>
+      <div style="display:flex;gap:8px">
+        <input id="chatIn" placeholder="למשל: כמה עולה טיסה מחיפה לפאפוס ב-24/07? שעות פארק המים?" style="flex:1;border:1px solid var(--line);border-radius:10px;padding:10px;font:inherit;background:#fbfaf6">
+        <button id="chatSend" style="border:0;background:var(--sea-800);color:#fff;border-radius:10px;padding:10px 16px;font:inherit;font-weight:800;cursor:pointer">שלח</button>
+      </div>
+      <div class="note">Claude עם חיפוש ברשת — רואה את פרטי הפרויקט ועונה בהתאם. <b>דורש פריסה ל-Vercel עם מפתח API.</b></div>
+    </div>
+  </div>
+
   <div class="sec-h"><span class="n">01</span><h2>מחירי טיסה — לחיץ לבחירה, ניתן לעדכון יומי</h2><span class="hint">₪ לנוסע</span></div>
   <div class="panel"><div class="panel-head">✈️ הלוך — בחר תא (הזול מסומן ✓)</div>
     <div class="panel-body" style="overflow-x:auto">
@@ -249,6 +260,23 @@
     <div class="panel-body">
       <div id="taskList"></div>
       <button class="addbtn" id="addTask" style="margin-top:10px">+ הוסף משימה</button>
+    </div>
+  </div>
+
+  <div id="npModal" style="display:none;position:fixed;inset:0;background:rgba(8,34,47,.55);z-index:100;align-items:center;justify-content:center">
+    <div style="background:#fff;border-radius:16px;padding:22px;width:min(92vw,380px);box-shadow:0 20px 60px rgba(0,0,0,.3)">
+      <div style="font-size:17px;font-weight:800;margin-bottom:3px">פרויקט חדש</div>
+      <div style="font-size:12.5px;color:var(--ink-soft);margin-bottom:14px">כל פרויקט נשמר בנפרד. מלא פרטים והתחל מבסיס קפריסין.</div>
+      <label style="font-size:12px;font-weight:700;color:var(--ink-soft)">שם הפרויקט</label>
+      <input id="np_name" placeholder="למשל: החופשה של רותם" style="width:100%;margin:4px 0 12px;border:1px solid var(--line);border-radius:9px;padding:9px;font:inherit;background:#fbfaf6">
+      <div style="display:flex;gap:10px">
+        <div style="flex:1"><label style="font-size:12px;font-weight:700;color:var(--ink-soft)">מבוגרים</label><input id="np_ad" type="number" value="2" min="1" style="width:100%;margin-top:4px;border:1px solid var(--line);border-radius:9px;padding:9px;font:inherit;background:#fbfaf6;text-align:center"></div>
+        <div style="flex:1"><label style="font-size:12px;font-weight:700;color:var(--ink-soft)">ילדים</label><input id="np_ch" type="number" value="0" min="0" style="width:100%;margin-top:4px;border:1px solid var(--line);border-radius:9px;padding:9px;font:inherit;background:#fbfaf6;text-align:center"></div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:16px">
+        <button id="np_create" style="flex:1;border:0;background:var(--teal);color:#fff;border-radius:10px;padding:11px;font:inherit;font-weight:800;cursor:pointer">צור פרויקט</button>
+        <button id="np_cancel" style="border:1px solid var(--line);background:#fff;border-radius:10px;padding:11px 16px;font:inherit;font-weight:700;cursor:pointer">ביטול</button>
+      </div>
     </div>
   </div>
 
@@ -687,7 +715,69 @@ function renderTasks(){
 function addTask(){tasks.push({id:'t'+Date.now(),text:'',done:false});renderTasks();
   const ins=document.querySelectorAll('#taskList .tk-text');if(ins.length)ins[ins.length-1].focus();saveState();}
 
-async function parseScreenshot(){
+function fileToB64(f){return new Promise(function(res){const r=new FileReader();r.onload=function(){res(r.result.split(',')[1]);};r.readAsDataURL(f);});}
+async function analyzeImage(b64,mediaType){
+  const st=$('aiStatus');st.textContent='⏳ Claude קורא את הצילום...';
+  try{
+    const resp=await fetch('/api/parse',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({image:b64,mediaType:mediaType||'image/png'})});
+    if(!resp.ok)throw new Error('server '+resp.status);
+    const d=await resp.json();st.textContent='';showAiResult(d);
+  }catch(e){st.textContent='';$('aiResult').style.display='block';
+    $('aiResult').innerHTML='<b style="color:var(--red)">לא זמין.</b> קליטת AI עובדת רק אחרי פריסה ל-Vercel עם מפתח API. בינתיים שלח את הצילום לצ׳אט של Claude והוא יחלץ ידנית.';}
+}
+async function parseScreenshot(){const f=$('aiFile').files[0];if(!f){alert('בחר צילום, או הדבק עם Ctrl+V.');return;}analyzeImage(await fileToB64(f),f.type);}
+
+/* map an AI-detected flight to a matrix cell / return field */
+function mapFlight(d){
+  if(d.category!=='flight'||!d.flight)return null;const f=d.flight;
+  const o=(f.origin||'').toString().toLowerCase(), de=(f.destination||'').toString().toLowerCase();
+  const has=function(s,arr){return arr.some(function(a){return s.indexOf(a)>=0;});};
+  const isRet = f.direction==='return' || has(o,['paphos','pfo','פאפוס']);
+  if(isRet){const rdep= has(de,['haifa','hfa','חיפה'])?'HFA': has(de,['tel','tlv','גוריון','אביב'])?'TLV':null;
+    if(!rdep)return null;return {isRet:true,retKey:'ret'+rdep,retAir:rdep};}
+  const dep= has(o,['haifa','hfa','חיפה'])?'HFA': has(o,['tel','tlv','גוריון','אביב','ben'])?'TLV':null;
+  const arr= has(de,['paphos','pfo','פאפוס'])?'PAF': has(de,['larnaca','lca','לרנקה'])?'LCA':null;
+  const dm=(d.date||'').toString().match(/\b(21|22|23|25)\b/);const day=dm?parseInt(dm[1]):null;
+  if(!dep||!arr||!day)return null;
+  return {isRet:false,routeId:dep.toLowerCase()+'_'+arr.toLowerCase(),day:day};
+}
+function applyFlight(d,mf){
+  let price=parseFloat(d.amount)||0;const cur=(d.currency||'').toString().toUpperCase();
+  if(d.amount_basis==='total')price=price/px();
+  if(mf.isRet){ if(cur==='EUR')price=price*rt(); else if(cur==='USD')price=price*3.7;
+    const el=$(mf.retKey);if(!el)return false;el.value=Math.round(price);
+    RETURN=mf.retAir;document.querySelectorAll('#retrow .retopt').forEach(o=>o.classList.toggle('sel',o.dataset.ret===RETURN));compute();return true;}
+  const r=routeById(mf.routeId);if(!r)return false;
+  if(r.cur==='€'){if(cur==='ILS')price=price/rt();else if(cur==='USD')price=price*3.7/rt();}
+  else{if(cur==='EUR')price=price*rt();else if(cur==='USD')price=price*3.7;}
+  price=Math.round(price);readF();
+  const cell=document.querySelector('#fmx .fcell[data-r="'+mf.routeId+'"][data-d="'+mf.day+'"] input');
+  if(cell){cell.value=price;}else{r.out[mf.day]=price;buildFmx();}
+  sel={r:mf.routeId,d:mf.day};readF();compute();return true;
+}
+
+/* assistant chat */
+let chatHistory=[];
+function projectSummary(){const r=routeById(sel.r);return {נוסעים:px(),שער_אירו:rt(),הלוך:r.from+' '+sel.d+'/07',חזור:'פאפוס→'+(RETURN==='HFA'?'חיפה':'תל אביב'),וילה:curVilla().name,לילות_גשר:BRIDGE[sel.d],סהכ_מוערך:window._lastTotal};}
+function addChat(role,text){const log=$('chatLog');const d=document.createElement('div');
+  d.style.cssText='max-width:88%;padding:9px 12px;border-radius:12px;font-size:13px;line-height:1.55;white-space:pre-wrap;'+(role==='user'?'align-self:flex-start;background:var(--sea-800);color:#fff':'align-self:flex-end;background:#f4efe3;color:var(--ink)');
+  d.textContent=text;log.appendChild(d);log.scrollTop=log.scrollHeight;return d;}
+async function sendChat(){const inp=$('chatIn');const msg=inp.value.trim();if(!msg)return;inp.value='';
+  addChat('user',msg);chatHistory.push({role:'user',content:msg});
+  const wait=addChat('assistant','⏳ מחפש ברשת...');
+  try{const resp=await fetch('/api/assistant',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({message:msg,projectSummary:projectSummary(),history:chatHistory})});
+    if(!resp.ok)throw new Error('server '+resp.status);const j=await resp.json();
+    wait.textContent=j.reply||'(אין תשובה)';chatHistory.push({role:'assistant',content:j.reply||''});
+  }catch(e){wait.textContent='לא זמין — דורש פריסה ל-Vercel עם מפתח API.';}
+}
+
+/* new project setup */
+function openNewProject(){$('np_name').value='';$('np_ad').value='2';$('np_ch').value='0';$('npModal').style.display='flex';}
+function createProject(){const name=$('np_name').value.trim()||'חופשה חדשה';const pax=(parseInt($('np_ad').value)||0)+(parseInt($('np_ch').value)||0)||1;
+  const ps=getProjects();const id='p'+Date.now();ps.push({id:id,name:name});saveProjects(ps);saveState();setCur(id);
+  try{localStorage.removeItem(KEY());}catch(e){}$('npModal').style.display='none';boot();$('pax').value=pax;compute();}
+
+async function parseScreenshotOLD(){
   const f=$('aiFile').files[0];
   if(!f){alert('בחר קודם צילום מסך.');return;}
   const st=$('aiStatus');st.textContent='⏳ Claude קורא את הצילום...';
@@ -703,16 +793,20 @@ async function parseScreenshot(){
 }
 function showAiResult(d){
   const box=$('aiResult');box.style.display='block';
-  const amt=d.amount!=null?d.amount:'?';const cur=d.currency||'';
+  const amt=d.amount!=null?d.amount:'?';const cur=d.currency||'';const mf=mapFlight(d);
   box.innerHTML='<div style="font-weight:800;margin-bottom:6px">🤖 זוהה מהצילום:</div>'+
     '<div style="font-size:13px;line-height:1.9">'+
     '<b>סוג:</b> '+(d.category||'?')+' &nbsp;·&nbsp; <b>ספק:</b> '+(d.vendor||'?')+'<br>'+
-    '<b>סכום:</b> '+amt+' '+cur+' &nbsp;·&nbsp; <b>תאריך:</b> '+(d.date||'?')+(d.confirmation?' &nbsp;·&nbsp; <b>אישור:</b> '+d.confirmation:'')+'<br>'+
+    '<b>סכום:</b> '+amt+' '+cur+(d.amount_basis==='total'?' (סה״כ)':d.amount_basis==='per_person'?' (לנוסע)':'')+' &nbsp;·&nbsp; <b>תאריך:</b> '+(d.date||'?')+(d.confirmation?' &nbsp;·&nbsp; <b>אישור:</b> '+d.confirmation:'')+'<br>'+
     (d.note?'<span style="color:var(--ink-soft)">'+d.note+'</span>':'')+'</div>'+
     '<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">'+
-    '<button id="aiAdd" style="border:0;background:var(--teal);color:#fff;border-radius:8px;padding:8px 12px;font:inherit;font-weight:700;cursor:pointer">➕ הוסף כפריט</button>'+
+    (mf?'<button id="aiFlight" style="border:0;background:var(--teal);color:#fff;border-radius:8px;padding:8px 12px;font:inherit;font-weight:800;cursor:pointer">✈️ עדכן את הטיסה הקיימת</button>':'')+
+    '<button id="aiAdd" style="border:'+(mf?'1px solid var(--teal)':'0')+';background:'+(mf?'#fff':'var(--teal)')+';color:'+(mf?'var(--teal-dk)':'#fff')+';border-radius:8px;padding:8px 12px;font:inherit;font-weight:700;cursor:pointer">➕ הוסף כפריט</button>'+
     (String(d.category).toLowerCase()==='hotel'&&String(cur).toUpperCase()==='EUR'?'<button id="aiHotel" style="border:1px solid var(--teal);background:#fff;color:var(--teal-dk);border-radius:8px;padding:8px 12px;font:inherit;font-weight:700;cursor:pointer">🏨 עדכן מלון (€)</button>':'')+
     '</div>';
+  if(mf&&$('aiFlight'))$('aiFlight').onclick=function(){
+    if(applyFlight(d,mf)){box.innerHTML='<b style="color:var(--teal-dk)">✓ הטיסה עודכנה במטריצה ('+(mf.isRet?'חזור':'הלוך')+'). לא נוסף פריט כפול.</b>';}
+    else{box.innerHTML='<b style="color:var(--amber)">לא הצלחתי למפות אוטומטית. עדכן ידנית במטריצה, או הוסף כפריט.</b>';}};
   $('aiAdd').onclick=function(){
     let price=parseFloat(d.amount)||0;const c=String(cur).toUpperCase();
     if(c==='EUR')price=price*rt();else if(c==='USD')price=price*3.7;
@@ -748,9 +842,19 @@ $('resetBtn').onclick=()=>{if(confirm('לאפס את הפרויקט הנוכחי
 $('addItem').onclick=addItem;
 $('projNotes').oninput=compute;
 $('projSel').onchange=e=>switchProject(e.target.value);
-$('projNew').onclick=newProject;$('projRen').onclick=renameProject;$('projDup').onclick=dupProject;$('projDel').onclick=delProject;
+$('projNew').onclick=openNewProject;$('projRen').onclick=renameProject;$('projDup').onclick=dupProject;$('projDel').onclick=delProject;
+$('np_create').onclick=createProject;$('np_cancel').onclick=()=>{$('npModal').style.display='none';};
 $('addTask').onclick=addTask;
 $('aiBtn').onclick=parseScreenshot;
+$('chatSend').onclick=sendChat;$('chatIn').addEventListener('keydown',e=>{if(e.key==='Enter')sendChat();});
+document.addEventListener('paste',function(e){
+  const items=(e.clipboardData||{}).items||[];
+  for(var i=0;i<items.length;i++){if(items[i].type&&items[i].type.indexOf('image')===0){
+    const blob=items[i].getAsFile();if(!blob)continue;
+    $('aiStatus').textContent='📋 צילום הודבק — מנתח...';
+    fileToB64(blob).then(function(b64){analyzeImage(b64,blob.type);});
+    e.preventDefault();return;}}
+});
 
 boot();
 
